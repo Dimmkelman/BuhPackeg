@@ -60,7 +60,16 @@ header { display: flex; flex-wrap: wrap; align-items: center; justify-content: s
 .month-nav button { border: 0; background: transparent; width: 34px; height: 34px; border-radius: 50%; font-size: 18px; color: var(--muted); }
 .month-nav button:hover { background: var(--soft); color: var(--accent); }
 .month-nav strong { min-width: 150px; text-align: center; font-weight: 600; }
-.tools { display: flex; gap: 8px; align-items: center; }
+.tools { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.auth { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.2fr); gap: 16px 24px; align-items: center; }
+.auth h2 { margin: 0 0 6px; }
+.auth p { margin: 0; }
+.auth-form { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.auth-form input { width: 100%; border: 1px solid var(--line); background: var(--bg); border-radius: 8px; padding: 9px 11px; font-size: 15px; }
+.auth-form .ghost { border-radius: 8px; }
+.auth .form-msg { grid-column: 1 / -1; }
+@media (max-width: 700px) { .auth { grid-template-columns: minmax(0, 1fr); } .auth-form { grid-template-columns: minmax(0, 1fr); } }
+.migrate-note button { border: 0; background: var(--accent); color: var(--accent-ink); border-radius: 999px; padding: 5px 12px; font-size: 13px; font-weight: 600; }
 .tools select, .ghost { background: var(--surface); border: 1px solid var(--line); border-radius: 999px; padding: 7px 12px; font-size: 14px; }
 .ghost:hover { border-color: var(--accent); color: var(--accent); }
 
@@ -203,12 +212,34 @@ footer { color: var(--muted); font-size: 12px; text-align: center; }
         <option value="₽">₽ рубль</option><option value="$">$ доллар</option><option value="€">€ евро</option>
         <option value="₸">₸ тенге</option><option value="₴">₴ гривна</option><option value="Br">Br бел. рубль</option>
       </select>
-      <button class="ghost" id="exportBtn">Экспорт CSV</button>
+      <button class="ghost" id="importBtn" hidden>Импорт CSV</button>
+      <input type="file" id="importFile" accept=".csv,text/csv" hidden>
+      <button class="ghost" id="exportBtn" hidden>Экспорт CSV</button>
+      <button class="ghost" id="logoutBtn" hidden>Выйти</button>
     </div>
   </header>
 
   <div class="sample-note" id="sampleNote" hidden>
     <span><b>Это пример.</b> Так выглядит месяц с заполненными данными. Добавьте первую свою операцию, и пример исчезнет.</span>
+  </div>
+
+  <section class="panel auth" id="authPanel" hidden>
+    <div>
+      <h2>Вход</h2>
+      <p class="sub">Записи хранятся в облаке и доступны с любого устройства после входа. Каждый видит только свои данные. Ниже показан пример заполненного месяца.</p>
+    </div>
+    <form class="auth-form" id="authForm" novalidate>
+      <input id="authEmail" type="email" autocomplete="email" placeholder="Почта" aria-label="Почта">
+      <input id="authPass" type="password" autocomplete="current-password" placeholder="Пароль, от 6 символов" aria-label="Пароль">
+      <button class="primary" type="submit" id="signInBtn">Войти</button>
+      <button class="ghost" type="button" id="signUpBtn">Создать аккаунт</button>
+    </form>
+    <div class="form-msg" id="authMsg" aria-live="polite"></div>
+  </section>
+
+  <div class="sample-note migrate-note" id="migrateNote" hidden>
+    <span>В этом браузере остались записи из прежней версии: <b id="migrateCount"></b>. Перенесите их в облако, чтобы они были доступны везде.</span>
+    <button id="migrateBtn" type="button">Перенести в облако</button>
   </div>
 
   <div class="grid">
@@ -302,6 +333,7 @@ footer { color: var(--muted); font-size: 12px; text-align: center; }
 </div>
 <div class="toast" id="toast" hidden></div>
 
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
 <script>
 (function () {
   "use strict";
@@ -389,65 +421,89 @@ footer { color: var(--muted); font-size: 12px; text-align: center; }
   const data = () => isSample() ? SAMPLE : txs;
   const budgets = () => (isSample() && Object.keys(settings.budgets).length === 0) ? SAMPLE_BUDGETS : settings.budgets;
 
-  // ---------- storage ----------
-  function saveLocal() {
-    try { localStorage.setItem(LS_KEY, JSON.stringify({ txs, settings })); } catch (e) { /* storage unavailable */ }
-  }
-  function loadLocal() {
+  // ---------- storage (Supabase) ----------
+  const SUPABASE_URL = "https://hihvemssnwmgxqkoincr.supabase.co";
+  const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImhpaHZlbXNzbndtZ3hxa29pbmNyIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTMwMzI4OTksImV4cCI6MjEwODYwODg5OX0.gcoczXrTxBM6PrlkVB3k6h2RG0skNQCKxRdymc_v2Qw";
+  const sb = window.supabase ? window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY) : null;
+  let userId = null;
+  let userEmail = "";
+  let localTxs = [];             // records the earlier browser-only version left behind
+
+  function readLocal() {
     try {
-      const raw = localStorage.getItem(LS_KEY);
-      if (raw) { const o = JSON.parse(raw); txs = Array.isArray(o.txs) ? o.txs : []; settings = Object.assign({ currency: "₽", budgets: {} }, o.settings || {}); }
-    } catch (e) { /* ignore */ }
+      const o = JSON.parse(localStorage.getItem(LS_KEY) || "null");
+      return o && Array.isArray(o.txs) ? o : null;
+    } catch (e) { return null; }
+  }
+  const toRow = t => ({ user_id: userId, id: t.id, type: t.type, cat: t.cat, amount: t.amount, date: t.date, note: t.note || "", created_at: t.createdAt || Date.now() });
+  const fromRow = r => ({ id: r.id, type: r.type, cat: r.cat, amount: Number(r.amount) || 0, date: r.date, note: r.note || "", createdAt: Number(r.created_at) || 0 });
+
+  async function fetchAllTx() {
+    const out = [];
+    for (let from = 0; ; from += 1000) {
+      const { data, error } = await sb.from("transactions").select("*").order("date", { ascending: false }).order("id").range(from, from + 999);
+      if (error) throw error;
+      out.push(...data);
+      if (data.length < 1000) return out;
+    }
+  }
+  async function loadAll() {
+    if (mode !== "cloud") return;
+    try {
+      const [rows, s] = await Promise.all([fetchAllTx(), sb.from("settings").select("*").maybeSingle()]);
+      txs = rows.map(fromRow);
+      if (s.data) settings = { currency: s.data.currency || "₽", budgets: Object.assign({}, s.data.budgets || {}) };
+    } catch (e) {
+      toast("Не удалось загрузить данные: " + (e.message || "нет связи с базой"));
+    }
+    render();
   }
   async function putTx(tx) {
-    if (mode === "cloud") {
-      try { await col.doc(tx.id).set(Object.assign({ kind: "tx" }, tx)); }
-      catch (e) { toast("Не удалось сохранить операцию. Проверьте соединение и попробуйте ещё раз."); }
-    } else { txs = txs.filter(t => t.id !== tx.id); txs.unshift(tx); saveLocal(); render(); }
+    if (mode !== "cloud") return;
+    txs = txs.filter(t => t.id !== tx.id); txs.unshift(tx); render();
+    const { error } = await sb.from("transactions").upsert(toRow(tx), { onConflict: "user_id,id" });
+    if (error) { toast("Операция не сохранилась: " + error.message); loadAll(); }
   }
   async function removeTx(id) {
     if (id === editingId) exitEdit();
-    if (mode === "cloud") {
-      try { await col.doc(id).delete(); } catch (e) { toast("Не удалось удалить операцию."); }
-    } else { txs = txs.filter(t => t.id !== id); saveLocal(); render(); }
+    if (mode !== "cloud") return;
+    txs = txs.filter(t => t.id !== id); render();
+    const { error } = await sb.from("transactions").delete().eq("id", id);
+    if (error) { toast("Не удалось удалить операцию: " + error.message); loadAll(); }
   }
   async function putSettings() {
-    if (mode === "cloud") {
-      try { await col.doc("settings").set({ kind: "settings", currency: settings.currency, budgets: settings.budgets }); }
-      catch (e) { toast("Не удалось сохранить настройки."); }
-    } else { saveLocal(); }
     render();
+    if (mode !== "cloud") return;
+    const { error } = await sb.from("settings").upsert({ user_id: userId, currency: settings.currency, budgets: settings.budgets }, { onConflict: "user_id" });
+    if (error) toast("Настройки не сохранились: " + error.message);
+  }
+  async function insertMany(list) {
+    for (let i = 0; i < list.length; i += 500) {
+      const { error } = await sb.from("transactions").upsert(list.slice(i, i + 500).map(toRow), { onConflict: "user_id,id" });
+      if (error) throw error;
+    }
   }
 
-  async function connect() {
-    const C = window.claude;
-    let db = null, user = null;
-    if (C && C.use) {
-      try { [db, user] = await Promise.all([C.use("db"), C.use("user")]); } catch (e) { db = null; }
-      try { downloads = await C.use("downloads"); } catch (e) { downloads = null; }
-      $("exportBtn").hidden = !downloads;
+  async function applySession(session) {
+    const id = session ? session.user.id : null;
+    if (id === userId && mode !== "pending") return;
+    userId = id;
+    if (!session) {
+      mode = "signedout"; userEmail = ""; txs = []; settings = { currency: "₽", budgets: {} };
+      render();
+      return;
     }
-    let id = null;
-    if (db && user) { try { id = await user.id(); } catch (e) { id = null; } }
-    if (db && id) {
-      col = db.collection("data/users/" + id);
-      mode = "cloud";
-      col.onSnapshot(snap => {
-        const next = [];
-        snap.docs.forEach(d => {
-          const v = d.data();
-          if (!v) return;
-          if (v.kind === "settings") settings = { currency: v.currency || "₽", budgets: Object.assign({}, v.budgets || {}) };
-          else if (v.kind === "tx") next.push({ id: d.id, type: v.type, cat: v.cat, amount: Number(v.amount) || 0, date: v.date, note: v.note || "", createdAt: v.createdAt || 0 });
-        });
-        txs = next;
-        render();
-      }, () => { toast("Связь с хранилищем прервалась. Обновите страницу."); });
-    } else {
-      mode = "local";
-      loadLocal();
-    }
+    mode = "cloud"; userEmail = session.user.email || "";
     render();
+    await loadAll();
+  }
+  async function connect() {
+    const old = readLocal();
+    localTxs = old ? old.txs.filter(t => t && t.id && t.date && t.amount > 0) : [];
+    if (!sb) { mode = "offline"; render(); return; }
+    sb.auth.onAuthStateChange((_event, session) => { setTimeout(() => applySession(session), 0); });
+    const { data } = await sb.auth.getSession();
+    applySession(data.session);
   }
 
   // ---------- render ----------
@@ -457,12 +513,15 @@ footer { color: var(--muted); font-size: 12px; text-align: center; }
   function render() {
     $("currency").value = settings.currency;
     $("monthLabel").textContent = monthName(viewMonth);
-    $("sampleNote").hidden = !isSample() || mode === "pending";
-    $("storeNote").textContent = mode === "cloud" ? "Данные сохраняются в вашем аккаунте и видны только вам"
-      : mode === "local" ? "Данные сохраняются только в этом браузере" : "Подключаем хранилище…";
-    $("footer").textContent = mode === "local"
-      ? "Сохранение работает в этом браузере. Очистка данных сайта удалит записи — периодически делайте экспорт."
-      : "Суммы считаются по выбранному месяцу. Остаток = доходы − расходы.";
+    $("sampleNote").hidden = !isSample() || mode !== "cloud";
+    $("authPanel").hidden = mode !== "signedout";
+    ["logoutBtn", "importBtn", "exportBtn"].forEach(id => $(id).hidden = mode !== "cloud");
+    $("migrateNote").hidden = !(mode === "cloud" && localTxs.length);
+    $("migrateCount").textContent = localTxs.length + " " + plural(localTxs.length, "запись", "записи", "записей");
+    $("storeNote").textContent = mode === "cloud" ? "Вы вошли как " + userEmail + " · данные хранятся в облаке"
+      : mode === "signedout" ? "Войдите, чтобы вести учёт"
+      : mode === "offline" ? "Нет связи с базой данных. Проверьте интернет и обновите страницу." : "Подключаемся…";
+    $("footer").textContent = "Суммы считаются по выбранному месяцу. Остаток = доходы − расходы.";
 
     const cur = monthTx(viewMonth);
     const prev = monthTx(shiftMonth(viewMonth, -1));
@@ -710,7 +769,7 @@ footer { color: var(--muted); font-size: 12px; text-align: center; }
     const date = $("date").value;
     if (!(amount > 0)) { msg.textContent = "Введите сумму больше нуля, например 1250 или 99,90."; msg.className = "form-msg err"; $("amount").focus(); return; }
     if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) { msg.textContent = "Укажите дату операции."; msg.className = "form-msg err"; return; }
-    if (mode === "pending") { msg.textContent = "Хранилище ещё подключается, попробуйте через пару секунд."; msg.className = "form-msg err"; return; }
+    if (mode !== "cloud") { msg.textContent = "Сначала войдите: форма входа вверху страницы."; msg.className = "form-msg err"; return; }
     const orig = editingId ? txs.find(t => t.id === editingId) : null;
     const tx = { id: orig ? orig.id : uid(), type: formType, cat: $("category").value, amount, date, note: $("note").value.trim().slice(0, 140), createdAt: orig ? (orig.createdAt || 0) : Date.now() };
     putTx(tx);
@@ -763,6 +822,112 @@ footer { color: var(--muted); font-size: 12px; text-align: center; }
     a.href = URL.createObjectURL(blob); a.download = name;
     document.body.appendChild(a); a.click(); a.remove();
     setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+  };
+
+  // ---------- account ----------
+  function authError(e) {
+    const m = (e && e.message) || "";
+    if (/invalid login/i.test(m)) return "Неверная почта или пароль.";
+    if (/already registered|already been registered/i.test(m)) return "Аккаунт с этой почтой уже есть. Нажмите «Войти».";
+    if (/password/i.test(m) && /6/.test(m)) return "Пароль должен быть не короче 6 символов.";
+    if (/email not confirmed/i.test(m)) return "Почта не подтверждена. Откройте ссылку из письма и войдите снова.";
+    if (/rate limit/i.test(m)) return "Слишком много попыток. Подождите минуту и попробуйте снова.";
+    return m || "Не получилось. Проверьте интернет и попробуйте снова.";
+  }
+  async function auth(kind) {
+    const msg = $("authMsg");
+    const email = $("authEmail").value.trim(), password = $("authPass").value;
+    msg.className = "form-msg err";
+    if (!/^\S+@\S+\.\S+$/.test(email)) { msg.textContent = "Введите почту, например name@mail.ru."; return; }
+    if (password.length < 6) { msg.textContent = "Пароль должен быть не короче 6 символов."; return; }
+    if (!sb) { msg.textContent = "Нет связи с базой данных. Обновите страницу."; return; }
+    msg.className = "form-msg"; msg.textContent = kind === "up" ? "Создаём аккаунт…" : "Входим…";
+    const { data, error } = kind === "up"
+      ? await sb.auth.signUp({ email, password })
+      : await sb.auth.signInWithPassword({ email, password });
+    if (error) { msg.className = "form-msg err"; msg.textContent = authError(error); return; }
+    if (kind === "up" && !data.session) { msg.textContent = "Аккаунт создан. Подтвердите почту по ссылке из письма, затем войдите."; return; }
+    msg.textContent = ""; $("authPass").value = "";
+  }
+  $("authForm").addEventListener("submit", e => { e.preventDefault(); auth("in"); });
+  $("signUpBtn").onclick = () => auth("up");
+  $("logoutBtn").onclick = async () => { if (editingId) exitEdit(); await sb.auth.signOut(); };
+  document.addEventListener("visibilitychange", () => { if (!document.hidden && mode === "cloud") loadAll(); });
+
+  $("migrateBtn").onclick = async () => {
+    const b = $("migrateBtn");
+    b.disabled = true; b.textContent = "Переносим…";
+    try {
+      await insertMany(localTxs);
+      const old = readLocal();
+      if (old && old.settings && !Object.keys(settings.budgets).length && old.settings.budgets) {
+        settings = { currency: old.settings.currency || settings.currency, budgets: old.settings.budgets };
+        await putSettings();
+      }
+      try { localStorage.removeItem(LS_KEY); } catch (e) { /* ignore */ }
+      toast("Перенесено: " + localTxs.length + " " + plural(localTxs.length, "запись", "записи", "записей") + ".");
+      localTxs = [];
+      await loadAll();
+    } catch (e) {
+      toast("Перенос не удался: " + (e.message || "ошибка сети") + ". Записи остались в браузере.");
+    }
+    b.disabled = false; b.textContent = "Перенести в облако";
+  };
+
+  // CSV in the same format the export writes: Дата;Тип;Категория;Сумма;Комментарий
+  function parseCSV(text) {
+    text = text.replace(/^﻿/, "");
+    const sep = (text.split("\n")[0].match(/;/g) || []).length >= (text.split("\n")[0].match(/,/g) || []).length ? ";" : ",";
+    const rows = []; let row = [], cell = "", q = false;
+    for (let i = 0; i < text.length; i++) {
+      const c = text[i];
+      if (q) {
+        if (c === '"' && text[i + 1] === '"') { cell += '"'; i++; }
+        else if (c === '"') q = false;
+        else cell += c;
+      } else if (c === '"') q = true;
+      else if (c === sep) { row.push(cell); cell = ""; }
+      else if (c === "\n" || c === "\r") {
+        if (c === "\r" && text[i + 1] === "\n") i++;
+        row.push(cell); rows.push(row); row = []; cell = "";
+      } else cell += c;
+    }
+    if (cell || row.length) { row.push(cell); rows.push(row); }
+    return rows.filter(r => r.some(x => x.trim()));
+  }
+  function normDate(s) {
+    s = s.trim();
+    let m = s.match(/^(\d{4})-(\d{2})-(\d{2})/);
+    if (m) return m[1] + "-" + m[2] + "-" + m[3];
+    m = s.match(/^(\d{1,2})\.(\d{1,2})\.(\d{4})/);
+    if (m) return m[3] + "-" + m[2].padStart(2, "0") + "-" + m[1].padStart(2, "0");
+    return null;
+  }
+  $("importBtn").onclick = () => $("importFile").click();
+  $("importFile").onchange = async e => {
+    const file = e.target.files[0];
+    e.target.value = "";
+    if (!file) return;
+    const rows = parseCSV(await file.text());
+    if (rows.length && /дата/i.test(rows[0][0] || "")) rows.shift();
+    const seen = new Set(txs.map(t => [t.date, t.type, t.cat, t.amount, t.note].join("|")));
+    const list = []; let bad = 0;
+    rows.forEach(r => {
+      const date = normDate(r[0] || "");
+      const type = /доход|income/i.test(r[1] || "") ? "income" : "expense";
+      const amount = parseAmount(r[3] || "");
+      if (!date || !(amount > 0)) { bad++; return; }
+      const t = { id: uid(), type, cat: (r[2] || "Другое").trim() || "Другое", amount, date, note: (r[4] || "").trim().slice(0, 140), createdAt: Date.now() };
+      const key = [t.date, t.type, t.cat, t.amount, t.note].join("|");
+      if (seen.has(key)) return;
+      seen.add(key); list.push(t);
+    });
+    if (!list.length) { toast(bad ? "В файле не нашлось подходящих строк." : "Все записи из файла уже есть в журнале."); return; }
+    try {
+      await insertMany(list);
+      toast("Импортировано: " + list.length + " " + plural(list.length, "запись", "записи", "записей") + (bad ? ", пропущено строк с ошибками: " + bad : "") + ".");
+      await loadAll();
+    } catch (err) { toast("Импорт не удался: " + (err.message || "ошибка сети")); }
   };
 
   // ---------- boot ----------
