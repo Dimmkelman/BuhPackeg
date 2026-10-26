@@ -39,6 +39,10 @@
   --income: #4FC58C; --expense: #F07B6F; --warn: #E2A84C; color-scheme: dark;
 }
 * { box-sizing: border-box; }
+[hidden] { display: none !important; }
+:root { padding-top: env(safe-area-inset-top, 0px); padding-bottom: env(safe-area-inset-bottom, 0px); }
+body { margin: 0; }
+img { max-width: 100%; }
 body {
   background: var(--bg); color: var(--ink); font-family: var(--font-body); font-size: 15px; line-height: 1.45;
   padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px));
@@ -209,8 +213,8 @@ footer { color: var(--muted); font-size: 12px; text-align: center; }
     </div>
     <div class="tools">
       <select id="currency" aria-label="Валюта">
-        <option value="₽">₽ рубль</option><option value="$">$ доллар</option><option value="€">€ евро</option>
-        <option value="₸">₸ тенге</option><option value="₴">₴ гривна</option><option value="Br">Br бел. рубль</option>
+        <option value="₸">₸ тенге</option><option value="₽">₽ рубль</option><option value="$">$ доллар</option>
+        <option value="€">€ евро</option><option value="₴">₴ гривна</option><option value="Br">Br бел. рубль</option>
       </select>
       <button class="ghost" id="importBtn" hidden>Импорт CSV</button>
       <input type="file" id="importFile" accept=".csv,text/csv" hidden>
@@ -219,14 +223,10 @@ footer { color: var(--muted); font-size: 12px; text-align: center; }
     </div>
   </header>
 
-  <div class="sample-note" id="sampleNote" hidden>
-    <span><b>Это пример.</b> Так выглядит месяц с заполненными данными. Добавьте первую свою операцию, и пример исчезнет.</span>
-  </div>
-
   <section class="panel auth" id="authPanel" hidden>
     <div>
       <h2>Вход</h2>
-      <p class="sub">Записи хранятся в облаке и доступны с любого устройства после входа. Каждый видит только свои данные. Ниже показан пример заполненного месяца.</p>
+      <p class="sub">Записи хранятся в облаке и доступны с любого устройства после входа. Каждый видит только свои данные.</p>
     </div>
     <form class="auth-form" id="authForm" novalidate>
       <input id="authEmail" type="email" autocomplete="email" placeholder="Почта" aria-label="Почта">
@@ -306,7 +306,7 @@ footer { color: var(--muted); font-size: 12px; text-align: center; }
           </div>
           <div class="field">
             <label for="note">Комментарий</label>
-            <input id="note" autocomplete="off" placeholder="Например: Пятёрочка, такси до работы">
+            <input id="note" autocomplete="off" placeholder="Например: Magnum, такси до работы">
           </div>
           <div class="form-actions">
             <button class="primary" id="submitBtn" type="submit">Добавить</button>
@@ -353,7 +353,7 @@ footer { color: var(--muted); font-size: 12px; text-align: center; }
   const todayISO = iso(today);
   let viewMonth = todayISO.slice(0, 7);
   let txs = [];
-  let settings = { currency: "₽", budgets: {} };
+  let settings = { currency: "₸", budgets: {} };
   let mode = "pending";          // pending | cloud | local
   let col = null;                // db collection when mode === "cloud"
   let filter = "all";
@@ -387,39 +387,8 @@ footer { color: var(--muted); font-size: 12px; text-align: center; }
   let toastTimer;
   function toast(msg) { const t = $("toast"); t.textContent = msg; t.hidden = false; clearTimeout(toastTimer); toastTimer = setTimeout(() => t.hidden = true, 2600); }
 
-  // ---------- sample data (shown only while the journal is empty) ----------
-  function buildSample() {
-    let seed = 42;
-    const rnd = () => (seed = (seed * 16807) % 2147483647) / 2147483647;
-    const out = [];
-    const add = (date, type, cat, amount, note) => out.push({ id: "s" + out.length, type, cat, amount: Math.round(amount), date, note: note || "" });
-    [shiftMonth(todayISO.slice(0, 7), -1), todayISO.slice(0, 7)].forEach(ym => {
-      const last = ym === todayISO.slice(0, 7) ? today.getDate() : daysIn(ym);
-      const d = n => ym + "-" + String(n).padStart(2, "0");
-      for (let i = 1; i <= last; i++) {
-        if (i === 1) add(d(i), "income", "Кэшбэк", 1240, "Кэшбэк по карте");
-        if (i === 5) add(d(i), "income", "Зарплата", 72000, "");
-        if (i === 20) add(d(i), "income", "Аванс", 48000, "");
-        if (i === 14) add(d(i), "income", "Подработка", 12500, "Перевод текста");
-        if (i === 3) add(d(i), "expense", "Связь", 650, "Мобильный и интернет");
-        if (i === 7) add(d(i), "expense", "Подписки", 399, "Музыка");
-        if (i === 15) add(d(i), "expense", "Подписки", 299, "Кино онлайн");
-        if (i === 10) add(d(i), "expense", "ЖКХ", 8740, "Квартплата");
-        if (i % 3 === 1) add(d(i), "expense", "Продукты", 1400 + rnd() * 1900, ["Пятёрочка", "Перекрёсток", "ВкусВилл", "Рынок"][Math.floor(rnd() * 4)]);
-        if (i % 2 === 0 && i % 7 !== 0) add(d(i), "expense", "Транспорт", 63 * (rnd() > .7 ? 4 : 2), "Метро");
-        if (i % 7 === 5) add(d(i), "expense", "Кафе и рестораны", 800 + rnd() * 900, "Обед с коллегами");
-        if (i === 12 || i === 25) add(d(i), "expense", "Развлечения", 1200 + rnd() * 1500, i === 12 ? "Кино" : "Концерт");
-        if (i === 18) add(d(i), "expense", "Одежда", 4790, "Кроссовки");
-        if (i === 22) add(d(i), "expense", "Здоровье", 1350, "Аптека");
-      }
-    });
-    return out;
-  }
-  const SAMPLE = buildSample();
-  const SAMPLE_BUDGETS = { "Продукты": 22000, "ЖКХ": 9000, "Транспорт": 3000, "Кафе и рестораны": 5000, "Развлечения": 4000, "Подписки": 1000 };
-  const isSample = () => txs.length === 0;
-  const data = () => isSample() ? SAMPLE : txs;
-  const budgets = () => (isSample() && Object.keys(settings.budgets).length === 0) ? SAMPLE_BUDGETS : settings.budgets;
+  const data = () => txs;
+  const budgets = () => settings.budgets;
 
   // ---------- storage (Supabase) ----------
   const SUPABASE_URL = "https://hihvemssnwmgxqkoincr.supabase.co";
@@ -452,7 +421,7 @@ footer { color: var(--muted); font-size: 12px; text-align: center; }
     try {
       const [rows, s] = await Promise.all([fetchAllTx(), sb.from("settings").select("*").maybeSingle()]);
       txs = rows.map(fromRow);
-      if (s.data) settings = { currency: s.data.currency || "₽", budgets: Object.assign({}, s.data.budgets || {}) };
+      if (s.data) settings = { currency: s.data.currency || "₸", budgets: Object.assign({}, s.data.budgets || {}) };
     } catch (e) {
       toast("Не удалось загрузить данные: " + (e.message || "нет связи с базой"));
     }
@@ -489,7 +458,7 @@ footer { color: var(--muted); font-size: 12px; text-align: center; }
     if (id === userId && mode !== "pending") return;
     userId = id;
     if (!session) {
-      mode = "signedout"; userEmail = ""; txs = []; settings = { currency: "₽", budgets: {} };
+      mode = "signedout"; userEmail = ""; txs = []; settings = { currency: "₸", budgets: {} };
       render();
       return;
     }
@@ -513,7 +482,6 @@ footer { color: var(--muted); font-size: 12px; text-align: center; }
   function render() {
     $("currency").value = settings.currency;
     $("monthLabel").textContent = monthName(viewMonth);
-    $("sampleNote").hidden = !isSample() || mode !== "cloud";
     $("authPanel").hidden = mode !== "signedout";
     ["logoutBtn", "importBtn", "exportBtn"].forEach(id => $(id).hidden = mode !== "cloud");
     $("migrateNote").hidden = !(mode === "cloud" && localTxs.length);
@@ -626,7 +594,7 @@ footer { color: var(--muted); font-size: 12px; text-align: center; }
     }).join("");
     const unused = EXPENSE_CATS.map(c => c[0]).filter(c => !shown.includes(c));
     if (unused.length) {
-      h += `<div class="cat"><div class="cat-foot" style="margin-top:12px"><span>Лимит для другой категории:</span>
+      h += `<div class="cat"><div class="cat-foot" style="margin-top:12px"><span>${shown.length ? "Лимит для другой категории:" : "Задать лимит для категории:"}</span>
         <select id="addLimitCat" aria-label="Категория для лимита" style="font-size:12px;border:1px solid var(--line);background:var(--bg);border-radius:6px;padding:2px 4px">
         <option value="">выбрать…</option>${unused.map(c => `<option>${esc(c)}</option>`).join("")}</select></div></div>`;
     }
@@ -690,7 +658,6 @@ footer { color: var(--muted); font-size: 12px; text-align: center; }
     }
     const groups = {};
     list.forEach(t => (groups[t.date] = groups[t.date] || []).push(t));
-    const sample = isSample();
     $("list").innerHTML = Object.keys(groups).map(d => {
       const g = groups[d];
       const net = g.reduce((a, t) => a + (t.type === "income" ? t.amount : -t.amount), 0);
@@ -699,7 +666,7 @@ footer { color: var(--muted); font-size: 12px; text-align: center; }
           <span class="ico ${t.type === "income" ? "inc" : ""}" aria-hidden="true">${esc(t.cat.slice(0, 2))}</span>
           <span class="row-text"><div>${esc(t.cat)}</div>${t.note ? `<small>${esc(t.note)}</small>` : ""}</span>
           <span class="amt num ${t.type === "income" ? "pos" : ""}">${t.type === "income" ? "+" : "−"}${money(t.amount)}</span>
-          ${sample ? "<span></span><span></span>" : `<button class="edit" data-edit-tx="${esc(t.id)}" aria-label="Изменить операцию" title="Изменить">✎</button><button class="del" data-del="${esc(t.id)}" aria-label="Удалить операцию" title="Удалить">✕</button>`}
+          <button class="edit" data-edit-tx="${esc(t.id)}" aria-label="Изменить операцию" title="Изменить">✎</button><button class="del" data-del="${esc(t.id)}" aria-label="Удалить операцию" title="Удалить">✕</button>
         </div>`).join("") + `</div>`;
     }).join("");
   }
