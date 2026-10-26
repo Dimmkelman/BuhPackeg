@@ -1,0 +1,777 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Карманная бухгалтерия</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Golos+Text:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&family=Unbounded:wght@500;700&display=swap">
+<style>
+/* Layout: ledger workspace — wide main column (month, chart, journal) beside a narrow side rail (entry form, limits, 50/30/20). Stacks on phones with the form first. */
+:root {
+  --bg: #F2F4F1;
+  --surface: #FFFFFF;
+  --ink: #15201B;
+  --muted: #5B6A63;
+  --line: #DAE1DC;
+  --accent: #2B45C9;
+  --accent-ink: #FFFFFF;
+  --soft: #E5E9FA;
+  --income: #1B7C50;
+  --expense: #B5372D;
+  --warn: #A86C12;
+  --font-display: "Unbounded", "Golos Text", system-ui, sans-serif;
+  --font-body: "Golos Text", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-num: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, monospace;
+  --r: 10px;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0E1412; --surface: #161F1C; --ink: #E6EEEA; --muted: #92A39B; --line: #283531;
+    --accent: #8C9EFF; --accent-ink: #0E1412; --soft: #222A49;
+    --income: #4FC58C; --expense: #F07B6F; --warn: #E2A84C; color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #0E1412; --surface: #161F1C; --ink: #E6EEEA; --muted: #92A39B; --line: #283531;
+  --accent: #8C9EFF; --accent-ink: #0E1412; --soft: #222A49;
+  --income: #4FC58C; --expense: #F07B6F; --warn: #E2A84C; color-scheme: dark;
+}
+* { box-sizing: border-box; }
+body {
+  background: var(--bg); color: var(--ink); font-family: var(--font-body); font-size: 15px; line-height: 1.45;
+  padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px));
+  padding-block: 20px 40px;
+}
+.wrap { max-width: 1120px; margin: 0 auto; display: grid; gap: 20px; }
+.num { font-family: var(--font-num); font-variant-numeric: tabular-nums; }
+button, input, select { font: inherit; color: inherit; }
+button { cursor: pointer; }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.label { font-size: 12px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); font-weight: 600; }
+
+/* header */
+header { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px 20px; }
+.brand { display: flex; flex-direction: column; gap: 2px; }
+.brand h1 { margin: 0; font-family: var(--font-display); font-weight: 700; font-size: 22px; letter-spacing: -.01em; }
+.brand span { color: var(--muted); font-size: 13px; }
+.month-nav { display: flex; align-items: center; gap: 4px; background: var(--surface); border: 1px solid var(--line); border-radius: 999px; padding: 4px; }
+.month-nav button { border: 0; background: transparent; width: 34px; height: 34px; border-radius: 50%; font-size: 18px; color: var(--muted); }
+.month-nav button:hover { background: var(--soft); color: var(--accent); }
+.month-nav strong { min-width: 150px; text-align: center; font-weight: 600; }
+.tools { display: flex; gap: 8px; align-items: center; }
+.tools select, .ghost { background: var(--surface); border: 1px solid var(--line); border-radius: 999px; padding: 7px 12px; font-size: 14px; }
+.ghost:hover { border-color: var(--accent); color: var(--accent); }
+
+.sample-note { display: flex; flex-wrap: wrap; gap: 6px 14px; align-items: center; background: var(--soft); color: var(--ink); border-radius: var(--r); padding: 10px 14px; font-size: 14px; }
+.sample-note b { color: var(--accent); }
+
+/* grid */
+.grid { display: grid; grid-template-columns: minmax(0, 1fr) 340px; gap: 20px; align-items: start; }
+.main, .side { display: grid; gap: 20px; min-width: 0; }
+.panel { background: var(--surface); border: 1px solid var(--line); border-radius: var(--r); padding: 18px; min-width: 0; }
+.panel h2 { margin: 0 0 14px; font-size: 15px; font-weight: 600; display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
+.panel h2 small { font-weight: 400; color: var(--muted); font-size: 13px; }
+
+/* summary */
+.summary { display: grid; grid-template-columns: 1.4fr 1fr 1fr; gap: 0; padding: 0; overflow: hidden; }
+.summary > div { padding: 18px; display: grid; gap: 6px; align-content: start; }
+.summary > div + div { border-left: 1px solid var(--line); }
+.balance-value { font-family: var(--font-display); font-weight: 500; font-size: clamp(28px, 4.4vw, 40px); letter-spacing: -.02em; line-height: 1.1; font-variant-numeric: tabular-nums; }
+.stat-value { font-size: 22px; font-weight: 500; }
+.sub { font-size: 13px; color: var(--muted); }
+.pos { color: var(--income); } .neg { color: var(--expense); }
+.pill { display: inline-block; font-size: 12px; font-weight: 600; padding: 2px 8px; border-radius: 999px; background: var(--soft); color: var(--accent); }
+.pill.good { background: color-mix(in srgb, var(--income) 14%, transparent); color: var(--income); }
+.pill.bad { background: color-mix(in srgb, var(--expense) 14%, transparent); color: var(--expense); }
+
+/* chart */
+.chart-box { overflow-x: auto; }
+svg.chart { width: 100%; min-width: 420px; height: auto; display: block; }
+.chart .grid-line { stroke: var(--line); stroke-width: 1; }
+.chart .tick { fill: var(--muted); font-size: 11px; font-family: var(--font-num); }
+.chart .bar { fill: var(--accent); opacity: .85; }
+.chart .bar.today { opacity: 1; fill: var(--accent); }
+.chart .bar.future { fill: var(--line); opacity: 1; }
+.chart .avg { stroke: var(--expense); stroke-dasharray: 4 4; stroke-width: 1.5; }
+.chart .avg-label { fill: var(--expense); font-size: 11px; font-family: var(--font-num); }
+.chart rect.hit { fill: transparent; }
+.chart-tip { min-height: 20px; font-size: 13px; color: var(--muted); margin-top: 6px; }
+
+/* journal */
+.filters { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; }
+.seg { display: inline-flex; background: var(--bg); border: 1px solid var(--line); border-radius: 999px; padding: 3px; }
+.seg button { border: 0; background: transparent; padding: 5px 12px; border-radius: 999px; font-size: 13px; color: var(--muted); }
+.seg button[aria-pressed="true"] { background: var(--surface); color: var(--ink); box-shadow: 0 1px 2px rgba(0,0,0,.08); font-weight: 600; }
+.search { flex: 1 1 160px; min-width: 0; border: 1px solid var(--line); background: var(--bg); border-radius: 999px; padding: 6px 14px; font-size: 14px; }
+.day { display: grid; gap: 2px; }
+.day + .day { margin-top: 14px; }
+.day-head { display: flex; justify-content: space-between; font-size: 12px; color: var(--muted); padding: 4px 0; border-bottom: 1px solid var(--line); text-transform: lowercase; }
+.row { display: grid; grid-template-columns: 34px minmax(0, 1fr) auto auto auto; align-items: center; gap: 8px; padding: 8px 0; }
+.row.editing { background: var(--soft); border-radius: 8px; padding-inline: 6px; }
+.edit { border: 0; background: transparent; color: var(--muted); font-size: 14px; padding: 4px 6px; border-radius: 6px; }
+.edit:hover { color: var(--accent); background: var(--soft); }
+.form-actions { display: flex; gap: 8px; }
+.form-actions .primary { flex: 1; }
+.form-actions .ghost { border-radius: 8px; padding-inline: 16px; }
+.row + .row { border-top: 1px dashed var(--line); }
+.ico { width: 34px; height: 34px; border-radius: 8px; display: grid; place-items: center; font-size: 13px; font-weight: 700; background: var(--soft); color: var(--accent); }
+.ico.inc { background: color-mix(in srgb, var(--income) 14%, transparent); color: var(--income); }
+.row-text { min-width: 0; }
+.row-text div { font-weight: 500; }
+.row-text small { color: var(--muted); display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.amt { font-weight: 500; white-space: nowrap; }
+.del { border: 0; background: transparent; color: var(--muted); font-size: 12px; padding: 4px 6px; border-radius: 6px; }
+.del:hover { color: var(--expense); background: color-mix(in srgb, var(--expense) 10%, transparent); }
+.del[data-armed] { color: var(--accent-ink); background: var(--expense); }
+.empty { color: var(--muted); padding: 18px 0; text-align: center; }
+
+/* form */
+form { display: grid; gap: 12px; }
+.type-toggle { display: grid; grid-template-columns: 1fr 1fr; gap: 4px; background: var(--bg); border: 1px solid var(--line); border-radius: 8px; padding: 3px; }
+.type-toggle button { border: 0; border-radius: 6px; padding: 8px; background: transparent; color: var(--muted); font-weight: 600; }
+.type-toggle button[aria-pressed="true"][data-type="expense"] { background: var(--expense); color: var(--accent-ink); }
+.type-toggle button[aria-pressed="true"][data-type="income"] { background: var(--income); color: var(--accent-ink); }
+.field { display: grid; gap: 4px; }
+.field label { font-size: 13px; color: var(--muted); }
+.field input, .field select { width: 100%; border: 1px solid var(--line); background: var(--bg); border-radius: 8px; padding: 9px 11px; font-size: 15px; }
+.amount-input { font-family: var(--font-num); font-size: 22px !important; }
+.two { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.primary { border: 0; background: var(--accent); color: var(--accent-ink); border-radius: 8px; padding: 11px; font-weight: 600; font-size: 15px; }
+.primary:hover { filter: brightness(1.08); }
+.form-msg { font-size: 13px; min-height: 18px; color: var(--muted); }
+.form-msg.err { color: var(--expense); }
+
+/* budgets */
+.cat { display: grid; gap: 5px; }
+.cat + .cat { margin-top: 12px; }
+.cat-top { display: flex; justify-content: space-between; gap: 8px; font-size: 14px; align-items: baseline; }
+.cat-top span:first-child { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.track { height: 8px; border-radius: 4px; background: var(--bg); border: 1px solid var(--line); overflow: hidden; }
+.fill { height: 100%; background: var(--accent); border-radius: 4px; }
+.fill.warn { background: var(--warn); } .fill.over { background: var(--expense); }
+.fill.nolimit { background: var(--muted); opacity: .45; }
+.cat-foot { display: flex; justify-content: space-between; font-size: 12px; color: var(--muted); gap: 8px; }
+.limit-btn { border: 0; background: transparent; padding: 0; color: var(--accent); font-size: 12px; text-decoration: underline dotted; text-underline-offset: 3px; }
+.limit-input { width: 110px; border: 1px solid var(--accent); border-radius: 6px; padding: 2px 6px; font-size: 12px; background: var(--bg); font-family: var(--font-num); }
+
+/* 50/30/20 */
+.stack { display: flex; height: 14px; border-radius: 7px; overflow: hidden; background: var(--bg); border: 1px solid var(--line); }
+.stack div { height: 100%; }
+.s-need { background: var(--accent); } .s-want { background: var(--warn); } .s-save { background: var(--income); }
+.rule-rows { display: grid; gap: 8px; margin-top: 12px; font-size: 14px; }
+.rule-rows div { display: grid; grid-template-columns: 12px 1fr auto auto; gap: 8px; align-items: center; }
+.dot { width: 10px; height: 10px; border-radius: 3px; }
+.rule-rows .target { color: var(--muted); font-size: 12px; min-width: 64px; text-align: right; }
+
+footer { color: var(--muted); font-size: 12px; text-align: center; }
+.toast { position: fixed; left: 50%; bottom: calc(20px + env(safe-area-inset-bottom, 0px)); transform: translateX(-50%); background: var(--ink); color: var(--bg); padding: 10px 16px; border-radius: 8px; font-size: 14px; z-index: 20; max-width: calc(100% - 32px); }
+
+@media (max-width: 900px) {
+  .grid { grid-template-columns: minmax(0, 1fr); }
+  .side { order: -1; }
+}
+@media (max-width: 620px) {
+  .summary { grid-template-columns: 1fr 1fr; }
+  .summary > div:first-child { grid-column: 1 / -1; }
+  .summary > div + div { border-left: 0; border-top: 1px solid var(--line); }
+  .summary > div:nth-child(3) { border-left: 1px solid var(--line); }
+  .month-nav strong { min-width: 120px; }
+}
+@media (prefers-reduced-motion: no-preference) {
+  .fill, .stack div { transition: width .35s ease; }
+}
+</style>
+</head>
+<body>
+
+
+<div class="wrap">
+  <header>
+    <div class="brand">
+      <h1>Карманная бухгалтерия</h1>
+      <span id="storeNote">Подключаем хранилище…</span>
+    </div>
+    <div class="month-nav" role="group" aria-label="Выбор месяца">
+      <button id="prevMonth" aria-label="Предыдущий месяц">‹</button>
+      <strong id="monthLabel">—</strong>
+      <button id="nextMonth" aria-label="Следующий месяц">›</button>
+    </div>
+    <div class="tools">
+      <select id="currency" aria-label="Валюта">
+        <option value="₽">₽ рубль</option><option value="$">$ доллар</option><option value="€">€ евро</option>
+        <option value="₸">₸ тенге</option><option value="₴">₴ гривна</option><option value="Br">Br бел. рубль</option>
+      </select>
+      <button class="ghost" id="exportBtn">Экспорт CSV</button>
+    </div>
+  </header>
+
+  <div class="sample-note" id="sampleNote" hidden>
+    <span><b>Это пример.</b> Так выглядит месяц с заполненными данными. Добавьте первую свою операцию, и пример исчезнет.</span>
+  </div>
+
+  <div class="grid">
+    <div class="main">
+      <section class="panel summary" aria-label="Итоги месяца">
+        <div>
+          <span class="label">Остаток за месяц</span>
+          <span class="balance-value" id="balance">0</span>
+          <span class="sub" id="perDay"></span>
+        </div>
+        <div>
+          <span class="label">Доходы</span>
+          <span class="stat-value num pos" id="incomeTotal">0</span>
+          <span class="sub" id="savingsRate"></span>
+        </div>
+        <div>
+          <span class="label">Расходы</span>
+          <span class="stat-value num neg" id="expenseTotal">0</span>
+          <span class="sub" id="expenseDelta"></span>
+        </div>
+      </section>
+
+      <section class="panel">
+        <h2>Траты по дням <small id="chartNote"></small></h2>
+        <div class="chart-box"><svg class="chart" id="chart" viewBox="0 0 680 200" role="img" aria-label="Расходы по дням месяца"></svg></div>
+        <div class="chart-tip" id="chartTip">Наведите на столбец, чтобы увидеть сумму за день.</div>
+      </section>
+
+      <section class="panel">
+        <h2>Журнал операций <small id="listCount"></small></h2>
+        <div class="filters">
+          <div class="seg" role="group" aria-label="Тип операций">
+            <button data-filter="all" aria-pressed="true">Все</button>
+            <button data-filter="expense" aria-pressed="false">Расходы</button>
+            <button data-filter="income" aria-pressed="false">Доходы</button>
+          </div>
+          <input class="search" id="search" type="search" placeholder="Поиск по категории или комментарию">
+        </div>
+        <div id="list"></div>
+      </section>
+    </div>
+
+    <aside class="side">
+      <section class="panel">
+        <h2 id="formTitle">Новая операция</h2>
+        <form id="txForm" novalidate>
+          <div class="type-toggle" role="group" aria-label="Тип операции">
+            <button type="button" data-type="expense" aria-pressed="true">Расход</button>
+            <button type="button" data-type="income" aria-pressed="false">Доход</button>
+          </div>
+          <div class="field">
+            <label for="amount">Сумма</label>
+            <input class="amount-input" id="amount" inputmode="decimal" autocomplete="off" placeholder="0">
+          </div>
+          <div class="two">
+            <div class="field">
+              <label for="category">Категория</label>
+              <select id="category"></select>
+            </div>
+            <div class="field">
+              <label for="date">Дата</label>
+              <input id="date" type="date">
+            </div>
+          </div>
+          <div class="field">
+            <label for="note">Комментарий</label>
+            <input id="note" autocomplete="off" placeholder="Например: Пятёрочка, такси до работы">
+          </div>
+          <div class="form-actions">
+            <button class="primary" id="submitBtn" type="submit">Добавить</button>
+            <button class="ghost" id="cancelEdit" type="button" hidden>Отмена</button>
+          </div>
+          <div class="form-msg" id="formMsg" aria-live="polite"></div>
+        </form>
+      </section>
+
+      <section class="panel">
+        <h2>Лимиты по категориям <small>на месяц</small></h2>
+        <div id="cats"></div>
+      </section>
+
+      <section class="panel">
+        <h2>Правило 50/30/20 <small>доля от дохода</small></h2>
+        <div class="stack" id="ruleBar"></div>
+        <div class="rule-rows" id="ruleRows"></div>
+      </section>
+    </aside>
+  </div>
+
+  <footer id="footer"></footer>
+</div>
+<div class="toast" id="toast" hidden></div>
+
+<script>
+(function () {
+  "use strict";
+
+  // ---------- reference data ----------
+  const EXPENSE_CATS = [
+    ["Продукты", "need"], ["ЖКХ", "need"], ["Транспорт", "need"], ["Связь", "need"], ["Здоровье", "need"],
+    ["Кафе и рестораны", "want"], ["Развлечения", "want"], ["Одежда", "want"], ["Подписки", "want"],
+    ["Подарки", "want"], ["Другое", "want"]
+  ];
+  const INCOME_CATS = ["Зарплата", "Аванс", "Подработка", "Кэшбэк", "Проценты по вкладу", "Другое"];
+  const KIND = Object.fromEntries(EXPENSE_CATS);
+  const LS_KEY = "karmannaya-buh.v1";
+
+  // ---------- state ----------
+  const today = new Date();
+  const todayISO = iso(today);
+  let viewMonth = todayISO.slice(0, 7);
+  let txs = [];
+  let settings = { currency: "₽", budgets: {} };
+  let mode = "pending";          // pending | cloud | local
+  let col = null;                // db collection when mode === "cloud"
+  let filter = "all";
+  let query = "";
+  let formType = "expense";
+  let downloads = null;
+  let extraCat = null;           // category whose limit is being added
+  let editingId = null;          // transaction loaded into the form for editing
+
+  // ---------- helpers ----------
+  function iso(d) { return d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0"); }
+  const nf = new Intl.NumberFormat("ru-RU", { maximumFractionDigits: 2 });
+  const nf0 = new Intl.NumberFormat("ru-RU", { maximumFractionDigits: 0 });
+  function money(v, opts) {
+    const s = (opts && opts.round ? nf0 : nf).format(Math.abs(v));
+    const sign = opts && opts.sign ? (v > 0 ? "+" : v < 0 ? "−" : "") : (v < 0 ? "−" : "");
+    return sign + s + " " + settings.currency;
+  }
+  function daysIn(ym) { const [y, m] = ym.split("-").map(Number); return new Date(y, m, 0).getDate(); }
+  function shiftMonth(ym, d) { const [y, m] = ym.split("-").map(Number); const t = new Date(y, m - 1 + d, 1); return iso(t).slice(0, 7); }
+  function monthName(ym) {
+    const [y, m] = ym.split("-").map(Number);
+    const s = new Intl.DateTimeFormat("ru-RU", { month: "long", year: "numeric" }).format(new Date(y, m - 1, 1)).replace(/\s*г\.?$/, "");
+    return s.charAt(0).toUpperCase() + s.slice(1);
+  }
+  const dayFmt = new Intl.DateTimeFormat("ru-RU", { day: "numeric", month: "long", weekday: "short" });
+  function dayLabel(d) { const [y, m, dd] = d.split("-").map(Number); return dayFmt.format(new Date(y, m - 1, dd)); }
+  function uid() { return Date.now().toString(36) + Math.random().toString(36).slice(2, 8); }
+  function esc(s) { return String(s).replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c])); }
+  function $(id) { return document.getElementById(id); }
+  let toastTimer;
+  function toast(msg) { const t = $("toast"); t.textContent = msg; t.hidden = false; clearTimeout(toastTimer); toastTimer = setTimeout(() => t.hidden = true, 2600); }
+
+  // ---------- sample data (shown only while the journal is empty) ----------
+  function buildSample() {
+    let seed = 42;
+    const rnd = () => (seed = (seed * 16807) % 2147483647) / 2147483647;
+    const out = [];
+    const add = (date, type, cat, amount, note) => out.push({ id: "s" + out.length, type, cat, amount: Math.round(amount), date, note: note || "" });
+    [shiftMonth(todayISO.slice(0, 7), -1), todayISO.slice(0, 7)].forEach(ym => {
+      const last = ym === todayISO.slice(0, 7) ? today.getDate() : daysIn(ym);
+      const d = n => ym + "-" + String(n).padStart(2, "0");
+      for (let i = 1; i <= last; i++) {
+        if (i === 1) add(d(i), "income", "Кэшбэк", 1240, "Кэшбэк по карте");
+        if (i === 5) add(d(i), "income", "Зарплата", 72000, "");
+        if (i === 20) add(d(i), "income", "Аванс", 48000, "");
+        if (i === 14) add(d(i), "income", "Подработка", 12500, "Перевод текста");
+        if (i === 3) add(d(i), "expense", "Связь", 650, "Мобильный и интернет");
+        if (i === 7) add(d(i), "expense", "Подписки", 399, "Музыка");
+        if (i === 15) add(d(i), "expense", "Подписки", 299, "Кино онлайн");
+        if (i === 10) add(d(i), "expense", "ЖКХ", 8740, "Квартплата");
+        if (i % 3 === 1) add(d(i), "expense", "Продукты", 1400 + rnd() * 1900, ["Пятёрочка", "Перекрёсток", "ВкусВилл", "Рынок"][Math.floor(rnd() * 4)]);
+        if (i % 2 === 0 && i % 7 !== 0) add(d(i), "expense", "Транспорт", 63 * (rnd() > .7 ? 4 : 2), "Метро");
+        if (i % 7 === 5) add(d(i), "expense", "Кафе и рестораны", 800 + rnd() * 900, "Обед с коллегами");
+        if (i === 12 || i === 25) add(d(i), "expense", "Развлечения", 1200 + rnd() * 1500, i === 12 ? "Кино" : "Концерт");
+        if (i === 18) add(d(i), "expense", "Одежда", 4790, "Кроссовки");
+        if (i === 22) add(d(i), "expense", "Здоровье", 1350, "Аптека");
+      }
+    });
+    return out;
+  }
+  const SAMPLE = buildSample();
+  const SAMPLE_BUDGETS = { "Продукты": 22000, "ЖКХ": 9000, "Транспорт": 3000, "Кафе и рестораны": 5000, "Развлечения": 4000, "Подписки": 1000 };
+  const isSample = () => txs.length === 0;
+  const data = () => isSample() ? SAMPLE : txs;
+  const budgets = () => (isSample() && Object.keys(settings.budgets).length === 0) ? SAMPLE_BUDGETS : settings.budgets;
+
+  // ---------- storage ----------
+  function saveLocal() {
+    try { localStorage.setItem(LS_KEY, JSON.stringify({ txs, settings })); } catch (e) { /* storage unavailable */ }
+  }
+  function loadLocal() {
+    try {
+      const raw = localStorage.getItem(LS_KEY);
+      if (raw) { const o = JSON.parse(raw); txs = Array.isArray(o.txs) ? o.txs : []; settings = Object.assign({ currency: "₽", budgets: {} }, o.settings || {}); }
+    } catch (e) { /* ignore */ }
+  }
+  async function putTx(tx) {
+    if (mode === "cloud") {
+      try { await col.doc(tx.id).set(Object.assign({ kind: "tx" }, tx)); }
+      catch (e) { toast("Не удалось сохранить операцию. Проверьте соединение и попробуйте ещё раз."); }
+    } else { txs = txs.filter(t => t.id !== tx.id); txs.unshift(tx); saveLocal(); render(); }
+  }
+  async function removeTx(id) {
+    if (id === editingId) exitEdit();
+    if (mode === "cloud") {
+      try { await col.doc(id).delete(); } catch (e) { toast("Не удалось удалить операцию."); }
+    } else { txs = txs.filter(t => t.id !== id); saveLocal(); render(); }
+  }
+  async function putSettings() {
+    if (mode === "cloud") {
+      try { await col.doc("settings").set({ kind: "settings", currency: settings.currency, budgets: settings.budgets }); }
+      catch (e) { toast("Не удалось сохранить настройки."); }
+    } else { saveLocal(); }
+    render();
+  }
+
+  async function connect() {
+    const C = window.claude;
+    let db = null, user = null;
+    if (C && C.use) {
+      try { [db, user] = await Promise.all([C.use("db"), C.use("user")]); } catch (e) { db = null; }
+      try { downloads = await C.use("downloads"); } catch (e) { downloads = null; }
+      $("exportBtn").hidden = !downloads;
+    }
+    let id = null;
+    if (db && user) { try { id = await user.id(); } catch (e) { id = null; } }
+    if (db && id) {
+      col = db.collection("data/users/" + id);
+      mode = "cloud";
+      col.onSnapshot(snap => {
+        const next = [];
+        snap.docs.forEach(d => {
+          const v = d.data();
+          if (!v) return;
+          if (v.kind === "settings") settings = { currency: v.currency || "₽", budgets: Object.assign({}, v.budgets || {}) };
+          else if (v.kind === "tx") next.push({ id: d.id, type: v.type, cat: v.cat, amount: Number(v.amount) || 0, date: v.date, note: v.note || "", createdAt: v.createdAt || 0 });
+        });
+        txs = next;
+        render();
+      }, () => { toast("Связь с хранилищем прервалась. Обновите страницу."); });
+    } else {
+      mode = "local";
+      loadLocal();
+    }
+    render();
+  }
+
+  // ---------- render ----------
+  function monthTx(ym) { return data().filter(t => t.date && t.date.slice(0, 7) === ym); }
+  function sum(list, type) { return list.reduce((a, t) => a + (t.type === type ? t.amount : 0), 0); }
+
+  function render() {
+    $("currency").value = settings.currency;
+    $("monthLabel").textContent = monthName(viewMonth);
+    $("sampleNote").hidden = !isSample() || mode === "pending";
+    $("storeNote").textContent = mode === "cloud" ? "Данные сохраняются в вашем аккаунте и видны только вам"
+      : mode === "local" ? "Данные сохраняются только в этом браузере" : "Подключаем хранилище…";
+    $("footer").textContent = mode === "local"
+      ? "Сохранение работает в этом браузере. Очистка данных сайта удалит записи — периодически делайте экспорт."
+      : "Суммы считаются по выбранному месяцу. Остаток = доходы − расходы.";
+
+    const cur = monthTx(viewMonth);
+    const prev = monthTx(shiftMonth(viewMonth, -1));
+    renderSummary(cur, prev);
+    renderChart(cur);
+    renderCats(cur);
+    renderRule(cur);
+    renderList(cur);
+  }
+
+  function renderSummary(cur, prev) {
+    const inc = sum(cur, "income"), exp = sum(cur, "expense"), bal = inc - exp;
+    const b = $("balance");
+    b.textContent = money(bal, { round: true });
+    b.className = "balance-value " + (bal < 0 ? "neg" : "");
+    $("incomeTotal").textContent = money(inc, { round: true });
+    $("expenseTotal").textContent = money(exp, { round: true });
+
+    const rate = inc > 0 ? Math.round((bal / inc) * 100) : null;
+    $("savingsRate").innerHTML = rate === null ? "Доходов пока нет"
+      : `Сбережено <span class="pill ${rate >= 20 ? "good" : rate < 0 ? "bad" : ""}">${rate}%</span>`;
+
+    const pExp = sum(prev, "expense");
+    if (pExp > 0) {
+      const ym = viewMonth, isCur = ym === todayISO.slice(0, 7);
+      // compare like-for-like: same number of elapsed days in the previous month
+      const upto = isCur ? today.getDate() : 31;
+      const pSame = prev.filter(t => t.type === "expense" && Number(t.date.slice(8)) <= upto).reduce((a, t) => a + t.amount, 0);
+      const delta = pSame > 0 ? Math.round(((exp - pSame) / pSame) * 100) : 0;
+      $("expenseDelta").innerHTML = `<span class="pill ${delta > 0 ? "bad" : "good"}">${delta > 0 ? "+" : ""}${delta}%</span> к прошлому месяцу${isCur ? " на эту дату" : ""}`;
+    } else $("expenseDelta").textContent = "Нет данных за прошлый месяц";
+
+    const isCur = viewMonth === todayISO.slice(0, 7);
+    if (isCur) {
+      const left = daysIn(viewMonth) - today.getDate() + 1;
+      $("perDay").textContent = bal > 0 ? `≈ ${money(bal / left, { round: true })} в день до конца месяца (${left} дн.)` : "Расходы превысили доходы этого месяца";
+    } else $("perDay").textContent = bal >= 0 ? "Месяц закрыт с плюсом" : "Месяц закрыт с минусом";
+  }
+
+  function renderChart(cur) {
+    const n = daysIn(viewMonth);
+    const byDay = new Array(n).fill(0);
+    cur.forEach(t => { if (t.type === "expense") byDay[Number(t.date.slice(8)) - 1] += t.amount; });
+    const isCur = viewMonth === todayISO.slice(0, 7);
+    const isFuture = viewMonth > todayISO.slice(0, 7);
+    const elapsed = isCur ? today.getDate() : isFuture ? 0 : n;
+    const total = byDay.reduce((a, b) => a + b, 0);
+    const avg = elapsed ? total / elapsed : 0;
+
+    const W = 680, H = 200, pl = 52, pr = 10, pt = 12, pb = 26;
+    const max = Math.max(...byDay, avg, 1);
+    const step = niceStep(max / 3);
+    const top = Math.ceil(max / step) * step;
+    const y = v => pt + (H - pt - pb) * (1 - v / top);
+    const slot = (W - pl - pr) / n, bw = Math.max(3, slot * 0.66);
+    let s = "";
+    for (let v = 0; v <= top + 1e-6; v += step) {
+      s += `<line class="grid-line" x1="${pl}" x2="${W - pr}" y1="${y(v)}" y2="${y(v)}"/>`;
+      s += `<text class="tick" x="${pl - 8}" y="${y(v) + 4}" text-anchor="end">${shortNum(v)}</text>`;
+    }
+    byDay.forEach((v, i) => {
+      const x = pl + slot * i + (slot - bw) / 2;
+      const future = i + 1 > elapsed;
+      const cls = future ? "bar future" : (isCur && i + 1 === today.getDate() ? "bar today" : "bar");
+      const h = future ? 2 : Math.max(v > 0 ? 2 : 0, y(0) - y(v));
+      s += `<rect class="${cls}" x="${x.toFixed(1)}" y="${(y(0) - h).toFixed(1)}" width="${bw.toFixed(1)}" height="${h.toFixed(1)}" rx="2"/>`;
+      if (i === 0 || (i + 1) % 5 === 0) s += `<text class="tick" x="${(x + bw / 2).toFixed(1)}" y="${H - 8}" text-anchor="middle">${i + 1}</text>`;
+      s += `<rect class="hit" data-day="${i + 1}" data-v="${v}" x="${(pl + slot * i).toFixed(1)}" y="${pt}" width="${slot.toFixed(1)}" height="${H - pt - pb}"/>`;
+    });
+    if (avg > 0) {
+      s += `<line class="avg" x1="${pl}" x2="${W - pr}" y1="${y(avg)}" y2="${y(avg)}"/>`;
+      s += `<text class="avg-label" x="${W - pr}" y="${y(avg) - 5}" text-anchor="end">в среднем ${shortNum(avg)}</text>`;
+    }
+    $("chart").innerHTML = s;
+    $("chartNote").textContent = avg > 0 ? `в среднем ${money(avg, { round: true })} в день` : "";
+  }
+  function niceStep(raw) {
+    const p = Math.pow(10, Math.floor(Math.log10(raw || 1)));
+    const f = raw / p;
+    return (f <= 1 ? 1 : f <= 2 ? 2 : f <= 5 ? 5 : 10) * p;
+  }
+  function shortNum(v) { return v >= 1000 ? nf.format(Math.round(v / 100) / 10) + "к" : nf0.format(v); }
+
+  function renderCats(cur) {
+    const spent = {};
+    cur.forEach(t => { if (t.type === "expense") spent[t.cat] = (spent[t.cat] || 0) + t.amount; });
+    const bud = budgets();
+    const names = EXPENSE_CATS.map(c => c[0]).filter(c => spent[c] || bud[c] || c === extraCat);
+    names.sort((a, b) => (spent[b] || 0) - (spent[a] || 0));
+    const shown = names.length ? names : [];
+    let h = shown.map(c => {
+      const sp = spent[c] || 0, lim = bud[c] || 0;
+      const pct = lim ? sp / lim : 0;
+      const cls = !lim ? "nolimit" : pct > 1 ? "over" : pct >= .8 ? "warn" : "";
+      const w = lim ? Math.min(100, pct * 100) : 100;
+      const right = lim ? (sp > lim ? `<span class="neg">перерасход ${money(sp - lim, { round: true })}</span>` : `осталось ${money(lim - sp, { round: true })}`) : "";
+      return `<div class="cat">
+        <div class="cat-top"><span>${esc(c)}</span><span class="num">${money(sp, { round: true })}</span></div>
+        <div class="track"><div class="fill ${cls}" style="width:${w}%"></div></div>
+        <div class="cat-foot"><span data-limit="${esc(c)}"><button class="limit-btn" data-edit="${esc(c)}">${lim ? "лимит " + money(lim, { round: true }) : "задать лимит"}</button></span><span>${right}</span></div>
+      </div>`;
+    }).join("");
+    const unused = EXPENSE_CATS.map(c => c[0]).filter(c => !shown.includes(c));
+    if (unused.length) {
+      h += `<div class="cat"><div class="cat-foot" style="margin-top:12px"><span>Лимит для другой категории:</span>
+        <select id="addLimitCat" aria-label="Категория для лимита" style="font-size:12px;border:1px solid var(--line);background:var(--bg);border-radius:6px;padding:2px 4px">
+        <option value="">выбрать…</option>${unused.map(c => `<option>${esc(c)}</option>`).join("")}</select></div></div>`;
+    }
+    if (!shown.length && !unused.length) h = `<div class="empty">Пока нет расходов</div>`;
+    $("cats").innerHTML = h || `<div class="empty">Пока нет расходов</div>`;
+  }
+
+  function editLimit(cat) {
+    const holder = document.querySelector(`[data-limit="${CSS.escape(cat)}"]`);
+    if (!holder) { // category had no row yet; show one, then edit it
+      if (extraCat === cat) return;
+      extraCat = cat;
+      render();
+      return editLimit(cat);
+    }
+    const cur = budgets()[cat] || "";
+    holder.innerHTML = `<input class="limit-input" id="limitInput" inputmode="decimal" value="${cur}" placeholder="сумма" aria-label="Лимит для ${esc(cat)}">`;
+    const inp = $("limitInput");
+    inp.focus(); inp.select();
+    let done = false;
+    const commit = (save) => {
+      if (done) return; done = true;
+      extraCat = null;
+      if (save) {
+        const v = parseAmount(inp.value);
+        const b = Object.assign({}, budgets());
+        if (v > 0) b[cat] = v; else delete b[cat];
+        settings.budgets = b;
+        putSettings();
+      } else render();
+    };
+    inp.addEventListener("keydown", e => { if (e.key === "Enter") commit(true); if (e.key === "Escape") commit(false); });
+    inp.addEventListener("blur", () => commit(true));
+  }
+
+  function renderRule(cur) {
+    const inc = sum(cur, "income");
+    let need = 0, want = 0;
+    cur.forEach(t => { if (t.type === "expense") (KIND[t.cat] === "need" ? need += t.amount : want += t.amount); });
+    const save = inc - need - want;
+    const base = inc > 0 ? inc : (need + want) || 1;
+    const p = v => Math.max(0, Math.round((v / base) * 100));
+    $("ruleBar").innerHTML = `<div class="s-need" style="width:${Math.min(100, p(need))}%"></div><div class="s-want" style="width:${Math.min(100 - Math.min(100, p(need)), p(want))}%"></div><div class="s-save" style="width:${Math.max(0, Math.min(100, p(save)))}%"></div>`;
+    const row = (cls, name, v, target, good) => `<div><span class="dot ${cls}"></span><span>${name}</span><span class="num">${inc > 0 ? p(v) + "%" : "—"}</span><span class="target">${good ? "✓ " : ""}цель ${target}</span></div>`;
+    $("ruleRows").innerHTML =
+      row("s-need", "Обязательное", need, "≤ 50%", inc > 0 && p(need) <= 50) +
+      row("s-want", "Желания", want, "≤ 30%", inc > 0 && p(want) <= 30) +
+      row("s-save", "Сбережения", save, "≥ 20%", inc > 0 && p(save) >= 20) +
+      `<div class="sub" style="display:block">Обязательное: продукты, ЖКХ, транспорт, связь, здоровье. Остальное считается желаниями.</div>`;
+  }
+
+  function renderList(cur) {
+    let list = cur.slice();
+    if (filter !== "all") list = list.filter(t => t.type === filter);
+    if (query) { const q = query.toLowerCase(); list = list.filter(t => (t.cat + " " + t.note).toLowerCase().includes(q)); }
+    list.sort((a, b) => b.date.localeCompare(a.date) || (b.createdAt || 0) - (a.createdAt || 0));
+    $("listCount").textContent = list.length ? list.length + " " + plural(list.length, "запись", "записи", "записей") : "";
+    if (!list.length) {
+      $("list").innerHTML = `<div class="empty">${cur.length ? "Ничего не найдено" : "В этом месяце операций нет. Добавьте первую в форме «Новая операция»."}</div>`;
+      return;
+    }
+    const groups = {};
+    list.forEach(t => (groups[t.date] = groups[t.date] || []).push(t));
+    const sample = isSample();
+    $("list").innerHTML = Object.keys(groups).map(d => {
+      const g = groups[d];
+      const net = g.reduce((a, t) => a + (t.type === "income" ? t.amount : -t.amount), 0);
+      return `<div class="day"><div class="day-head"><span>${dayLabel(d)}</span><span class="num">${money(net, { sign: true, round: true })}</span></div>` +
+        g.map(t => `<div class="row${t.id === editingId ? " editing" : ""}">
+          <span class="ico ${t.type === "income" ? "inc" : ""}" aria-hidden="true">${esc(t.cat.slice(0, 2))}</span>
+          <span class="row-text"><div>${esc(t.cat)}</div>${t.note ? `<small>${esc(t.note)}</small>` : ""}</span>
+          <span class="amt num ${t.type === "income" ? "pos" : ""}">${t.type === "income" ? "+" : "−"}${money(t.amount)}</span>
+          ${sample ? "<span></span><span></span>" : `<button class="edit" data-edit-tx="${esc(t.id)}" aria-label="Изменить операцию" title="Изменить">✎</button><button class="del" data-del="${esc(t.id)}" aria-label="Удалить операцию" title="Удалить">✕</button>`}
+        </div>`).join("") + `</div>`;
+    }).join("");
+  }
+  function plural(n, a, b, c) { const m10 = n % 10, m100 = n % 100; return m10 === 1 && m100 !== 11 ? a : m10 >= 2 && m10 <= 4 && (m100 < 10 || m100 >= 20) ? b : c; }
+
+  function fillCats() {
+    const sel = $("category"), prev = sel.value;
+    const list = formType === "expense" ? EXPENSE_CATS.map(c => c[0]) : INCOME_CATS;
+    sel.innerHTML = list.map(c => `<option>${esc(c)}</option>`).join("");
+    if (list.includes(prev)) sel.value = prev;
+  }
+  function parseAmount(s) { const v = parseFloat(String(s).replace(/\s| /g, "").replace(",", ".")); return isFinite(v) ? Math.round(v * 100) / 100 : 0; }
+
+  // ---------- events ----------
+  $("prevMonth").onclick = () => { viewMonth = shiftMonth(viewMonth, -1); render(); };
+  $("nextMonth").onclick = () => { viewMonth = shiftMonth(viewMonth, 1); render(); };
+  $("currency").onchange = e => { settings.currency = e.target.value; putSettings(); };
+
+  function setType(type) {
+    formType = type;
+    document.querySelectorAll(".type-toggle button").forEach(x => x.setAttribute("aria-pressed", String(x.dataset.type === type)));
+    fillCats();
+  }
+  document.querySelectorAll(".type-toggle button").forEach(b => b.onclick = () => setType(b.dataset.type));
+
+  function startEdit(id) {
+    const t = txs.find(x => x.id === id);
+    if (!t) return;
+    editingId = id;
+    setType(t.type);
+    const sel = $("category");
+    if (![...sel.options].some(o => o.value === t.cat)) sel.insertAdjacentHTML("beforeend", `<option>${esc(t.cat)}</option>`);
+    sel.value = t.cat;
+    $("amount").value = String(t.amount).replace(".", ",");
+    $("date").value = t.date;
+    $("note").value = t.note || "";
+    $("formTitle").textContent = "Изменить операцию";
+    $("submitBtn").textContent = "Сохранить";
+    $("cancelEdit").hidden = false;
+    $("formMsg").textContent = "";
+    render();
+    $("txForm").scrollIntoView({ block: "nearest" });
+    $("amount").focus({ preventScroll: true });
+  }
+  function exitEdit() {
+    editingId = null;
+    $("formTitle").textContent = "Новая операция";
+    $("submitBtn").textContent = "Добавить";
+    $("cancelEdit").hidden = true;
+    $("amount").value = ""; $("note").value = "";
+    $("date").value = todayISO;
+    render();
+  }
+  $("cancelEdit").onclick = () => { exitEdit(); $("formMsg").textContent = ""; };
+  $("txForm").addEventListener("keydown", e => { if (e.key === "Escape" && editingId) { exitEdit(); $("formMsg").textContent = ""; } });
+  document.querySelectorAll(".seg button").forEach(b => b.onclick = () => {
+    filter = b.dataset.filter;
+    document.querySelectorAll(".seg button").forEach(x => x.setAttribute("aria-pressed", String(x === b)));
+    render();
+  });
+  $("search").oninput = e => { query = e.target.value.trim(); render(); };
+
+  $("txForm").addEventListener("submit", e => {
+    e.preventDefault();
+    const msg = $("formMsg");
+    const amount = parseAmount($("amount").value);
+    const date = $("date").value;
+    if (!(amount > 0)) { msg.textContent = "Введите сумму больше нуля, например 1250 или 99,90."; msg.className = "form-msg err"; $("amount").focus(); return; }
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) { msg.textContent = "Укажите дату операции."; msg.className = "form-msg err"; return; }
+    if (mode === "pending") { msg.textContent = "Хранилище ещё подключается, попробуйте через пару секунд."; msg.className = "form-msg err"; return; }
+    const orig = editingId ? txs.find(t => t.id === editingId) : null;
+    const tx = { id: orig ? orig.id : uid(), type: formType, cat: $("category").value, amount, date, note: $("note").value.trim().slice(0, 140), createdAt: orig ? (orig.createdAt || 0) : Date.now() };
+    putTx(tx);
+    msg.textContent = orig ? "Изменения сохранены." : (formType === "income" ? "Доход" : "Расход") + " " + money(amount) + " добавлен.";
+    msg.className = "form-msg";
+    if (editingId) exitEdit();
+    else { $("amount").value = ""; $("note").value = ""; }
+    if (date.slice(0, 7) !== viewMonth) { viewMonth = date.slice(0, 7); render(); }
+    $("amount").focus();
+  });
+
+  $("list").addEventListener("click", e => {
+    const ed = e.target.closest("[data-edit-tx]");
+    if (ed) { startEdit(ed.dataset.editTx); return; }
+    const b = e.target.closest("[data-del]");
+    if (!b) return;
+    if (b.hasAttribute("data-armed")) { removeTx(b.dataset.del); return; }
+    b.setAttribute("data-armed", ""); b.textContent = "Удалить?";
+    setTimeout(() => { if (b.isConnected) { b.removeAttribute("data-armed"); b.textContent = "✕"; } }, 3000);
+  });
+  $("cats").addEventListener("click", e => { const b = e.target.closest("[data-edit]"); if (b) editLimit(b.dataset.edit); });
+  $("cats").addEventListener("change", e => { if (e.target.id === "addLimitCat" && e.target.value) editLimit(e.target.value); });
+
+  const chart = $("chart");
+  chart.addEventListener("mousemove", e => {
+    const r = e.target.closest("rect.hit");
+    if (!r) return;
+    const [y, m] = viewMonth.split("-");
+    $("chartTip").textContent = `${dayLabel(y + "-" + m + "-" + String(r.dataset.day).padStart(2, "0"))}: потрачено ${money(Number(r.dataset.v))}`;
+  });
+  chart.addEventListener("click", e => {
+    const r = e.target.closest("rect.hit");
+    if (!r) return;
+    const [y, m] = viewMonth.split("-");
+    $("chartTip").textContent = `${dayLabel(y + "-" + m + "-" + String(r.dataset.day).padStart(2, "0"))}: потрачено ${money(Number(r.dataset.v))}`;
+  });
+
+  $("exportBtn").onclick = async () => {
+    if (!txs.length) { toast("Пока нечего экспортировать: журнал пуст."); return; }
+    const rows = [["Дата", "Тип", "Категория", "Сумма", "Комментарий"]].concat(
+      txs.slice().sort((a, b) => a.date.localeCompare(b.date)).map(t => [t.date, t.type === "income" ? "Доход" : "Расход", t.cat, String(t.amount).replace(".", ","), t.note]));
+    const csv = "﻿" + rows.map(r => r.map(c => /[;"\n]/.test(c) ? '"' + c.replace(/"/g, '""') + '"' : c).join(";")).join("\r\n");
+    const name = "finansy-" + todayISO + ".csv";
+    const blob = new Blob([csv], { type: "text/csv" });
+    if (downloads) {
+      try { await downloads.save({ filename: name, data: blob }); } catch (e) { toast("Файл не сохранён."); }
+      return;
+    }
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob); a.download = name;
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+  };
+
+  // ---------- boot ----------
+  $("date").value = todayISO;
+  fillCats();
+  render();
+  connect();
+})();
+</script>
+
+</body>
+</html>
